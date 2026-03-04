@@ -170,7 +170,9 @@ export default function Learn() {
   }
 
   const card = cards[currentIndex]
-  const progress = ((currentIndex) / cards.length) * 100
+  const progress = (currentIndex / cards.length) * 100
+  const hasImages = !!(card.front_image_url || card.back_image_url)
+  const cardHeight = hasImages ? 420 : 300
 
   return (
     <div style={{ maxWidth: '640px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -222,7 +224,7 @@ export default function Learn() {
             style={{
               position: 'relative',
               width: '100%',
-              height: '300px',
+              height: `${cardHeight}px`,
               cursor: 'pointer',
               transformStyle: 'preserve-3d',
               transition: 'transform 0.55s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -242,17 +244,33 @@ export default function Learn() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '40px',
+              padding: '32px 40px',
+              gap: '16px',
+              overflowY: 'auto',
               boxShadow: '0 8px 40px rgba(0,0,0,0.5)',
               background: 'linear-gradient(135deg, #1a1a1a 0%, #1e1e2e 100%)',
             }}>
-              <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '20px', fontWeight: '600' }}>
+              <div style={{ fontSize: '11px', color: '#71717a', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: '600', flexShrink: 0 }}>
                 Question
               </div>
+              {card.front_image_url && (
+                <img
+                  src={card.front_image_url}
+                  alt=""
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '160px',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    border: '1px solid #2a2a2a',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
               <p style={{ margin: 0, fontSize: '20px', fontWeight: '600', color: '#f4f4f5', textAlign: 'center', lineHeight: 1.5 }}>
                 {card.front}
               </p>
-              <div style={{ position: 'absolute', bottom: '20px', fontSize: '12px', color: '#3f3f46' }}>
+              <div style={{ position: 'absolute', bottom: '16px', fontSize: '12px', color: '#3f3f46' }}>
                 Space to flip
               </div>
             </div>
@@ -271,13 +289,29 @@ export default function Learn() {
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              padding: '40px',
+              padding: '32px 40px',
+              gap: '16px',
+              overflowY: 'auto',
               boxShadow: '0 8px 40px rgba(99,102,241,0.1)',
               background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
             }}>
-              <div style={{ fontSize: '11px', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: '20px', fontWeight: '600' }}>
+              <div style={{ fontSize: '11px', color: '#818cf8', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: '600', flexShrink: 0 }}>
                 Answer
               </div>
+              {card.back_image_url && (
+                <img
+                  src={card.back_image_url}
+                  alt=""
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: '160px',
+                    objectFit: 'contain',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(99,102,241,0.2)',
+                    flexShrink: 0,
+                  }}
+                />
+              )}
               <p style={{ margin: 0, fontSize: '17px', color: '#d1d5db', textAlign: 'center', lineHeight: 1.6 }}>
                 {card.back}
               </p>

@@ -1,19 +1,37 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
+import { deleteImage } from '../lib/storage'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
+import ImageUpload from '../components/ImageUpload'
+
+function newCardId() {
+  return crypto.randomUUID()
+}
+
+const emptyForm = (topic = '') => ({
+  front: '',
+  back: '',
+  topic,
+  front_image_url: null,
+  back_image_url: null,
+})
 
 export default function AddCard() {
   const navigate = useNavigate()
   const [existingTopics, setExistingTopics] = useState([])
-  const [form, setForm] = useState({ front: '', back: '', topic: '' })
+  const [form, setForm] = useState(emptyForm())
   const [submitting, setSubmitting] = useState(false)
   const [bulkJson, setBulkJson] = useState('')
   const [bulkSubmitting, setBulkSubmitting] = useState(false)
   const [activeTab, setActiveTab] = useState('single')
   const { toasts, addToast, removeToast } = useToast()
+
+  // Stable UUID for the current unsaved card — images are stored under this path.
+  // Replaced with a fresh UUID after each successful save.
+  const cardIdRef = useRef(newCardId())
 
   useEffect(() => {
     supabase
@@ -35,17 +53,25 @@ export default function AddCard() {
     }
     setSubmitting(true)
     try {
-      const { error } = await supabase.from('flashcards').insert([{
-        front: form.front.trim(),
-        back: form.back.trim(),
-        topic: form.topic.trim(),
-      }])
+      const { error } = await supabase.from('flashcards').insert([
+        {
+          id: cardIdRef.current,
+          front: form.front.trim(),
+          back: form.back.trim(),
+          topic: form.topic.trim(),
+          front_image_url: form.front_image_url || null,
+          back_image_url: form.back_image_url || null,
+        },
+      ])
       if (error) throw error
       addToast('Card added successfully!')
-      setForm({ front: '', back: '', topic: form.topic })
-      if (!existingTopics.includes(form.topic.trim())) {
-        setExistingTopics((prev) => [...prev, form.topic.trim()].sort())
+      const savedTopic = form.topic
+      if (!existingTopics.includes(savedTopic.trim())) {
+        setExistingTopics((prev) => [...prev, savedTopic.trim()].sort())
       }
+      // New UUID so next card's images don't overlap
+      cardIdRef.current = newCardId()
+      setForm(emptyForm(savedTopic))
     } catch (err) {
       addToast(err.message, 'error')
     } finally {
@@ -89,6 +115,13 @@ export default function AddCard() {
     }
   }
 
+  // When user changes image, delete the old one first
+  function handleImageChange(side, newUrl) {
+    const oldUrl = side === 'front' ? form.front_image_url : form.back_image_url
+    if (oldUrl && oldUrl !== newUrl) deleteImage(oldUrl).catch(() => {})
+    setForm((f) => ({ ...f, [`${side}_image_url`]: newUrl }))
+  }
+
   const tabStyle = (isActive) => ({
     padding: '8px 20px',
     borderRadius: '8px',
@@ -106,7 +139,15 @@ export default function AddCard() {
       <div style={{ maxWidth: '640px', margin: '0 auto' }}>
         {/* Header */}
         <div style={{ marginBottom: '32px' }}>
-          <h1 style={{ margin: '0 0 6px', fontSize: '28px', fontWeight: '700', color: '#f4f4f5', letterSpacing: '-0.03em' }}>
+          <h1
+            style={{
+              margin: '0 0 6px',
+              fontSize: '28px',
+              fontWeight: '700',
+              color: '#f4f4f5',
+              letterSpacing: '-0.03em',
+            }}
+          >
             Add Cards
           </h1>
           <p style={{ margin: 0, color: '#71717a', fontSize: '14px' }}>
@@ -115,16 +156,18 @@ export default function AddCard() {
         </div>
 
         {/* Tabs */}
-        <div style={{
-          display: 'flex',
-          gap: '4px',
-          backgroundColor: '#1a1a1a',
-          border: '1px solid #2a2a2a',
-          borderRadius: '10px',
-          padding: '4px',
-          marginBottom: '28px',
-          width: 'fit-content',
-        }}>
+        <div
+          style={{
+            display: 'flex',
+            gap: '4px',
+            backgroundColor: '#1a1a1a',
+            border: '1px solid #2a2a2a',
+            borderRadius: '10px',
+            padding: '4px',
+            marginBottom: '28px',
+            width: 'fit-content',
+          }}
+        >
           <button onClick={() => setActiveTab('single')} style={tabStyle(activeTab === 'single')}>
             Single Card
           </button>
@@ -143,6 +186,8 @@ export default function AddCard() {
             <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
               <div style={cardStyle}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+
+                  {/* Front */}
                   <div>
                     <label style={labelStyle}>Front (Question)</label>
                     <textarea
@@ -152,11 +197,24 @@ export default function AddCard() {
                       rows={3}
                       required
                       style={inputStyle}
-                      onFocus={(e) => e.target.style.borderColor = '#6366f1'}
-                      onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
+                      onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2a2a2a')}
                     />
+                    <div style={{ marginTop: '10px' }}>
+                      <ImageUpload
+                        cardId={cardIdRef.current}
+                        side="front"
+                        value={form.front_image_url}
+                        onChange={(url) => handleImageChange('front', url)}
+                        label="Front image (optional)"
+                      />
+                    </div>
                   </div>
 
+                  {/* Divider */}
+                  <div style={{ height: '1px', backgroundColor: '#2a2a2a' }} />
+
+                  {/* Back */}
                   <div>
                     <label style={labelStyle}>Back (Answer)</label>
                     <textarea
@@ -166,11 +224,24 @@ export default function AddCard() {
                       rows={3}
                       required
                       style={inputStyle}
-                      onFocus={(e) => e.target.style.borderColor = '#6366f1'}
-                      onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
+                      onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2a2a2a')}
                     />
+                    <div style={{ marginTop: '10px' }}>
+                      <ImageUpload
+                        cardId={cardIdRef.current}
+                        side="back"
+                        value={form.back_image_url}
+                        onChange={(url) => handleImageChange('back', url)}
+                        label="Back image (optional)"
+                      />
+                    </div>
                   </div>
 
+                  {/* Divider */}
+                  <div style={{ height: '1px', backgroundColor: '#2a2a2a' }} />
+
+                  {/* Topic */}
                   <div>
                     <label style={labelStyle}>Topic</label>
                     <input
@@ -180,11 +251,13 @@ export default function AddCard() {
                       placeholder="Select or type a topic…"
                       required
                       style={{ ...inputStyle, resize: 'none', height: '42px', paddingTop: '10px', paddingBottom: '10px' }}
-                      onFocus={(e) => e.target.style.borderColor = '#6366f1'}
-                      onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
+                      onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+                      onBlur={(e) => (e.target.style.borderColor = '#2a2a2a')}
                     />
                     <datalist id="topic-list">
-                      {existingTopics.map((t) => <option key={t} value={t} />)}
+                      {existingTopics.map((t) => (
+                        <option key={t} value={t} />
+                      ))}
                     </datalist>
                     {existingTopics.length > 0 && (
                       <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
@@ -196,8 +269,12 @@ export default function AddCard() {
                             style={{
                               padding: '3px 10px',
                               borderRadius: '6px',
-                              border: form.topic === t ? '1px solid rgba(99,102,241,0.5)' : '1px solid #2a2a2a',
-                              backgroundColor: form.topic === t ? 'rgba(99,102,241,0.15)' : '#1a1a1a',
+                              border:
+                                form.topic === t
+                                  ? '1px solid rgba(99,102,241,0.5)'
+                                  : '1px solid #2a2a2a',
+                              backgroundColor:
+                                form.topic === t ? 'rgba(99,102,241,0.15)' : '#1a1a1a',
                               color: form.topic === t ? '#818cf8' : '#71717a',
                               cursor: 'pointer',
                               fontSize: '12px',
@@ -214,11 +291,7 @@ export default function AddCard() {
               </div>
 
               <div style={{ display: 'flex', gap: '10px' }}>
-                <button
-                  type="button"
-                  onClick={() => navigate('/')}
-                  style={btnSecondary}
-                >
+                <button type="button" onClick={() => navigate('/')} style={btnSecondary}>
                   Cancel
                 </button>
                 <button
@@ -243,32 +316,30 @@ export default function AddCard() {
               <label style={{ ...labelStyle, marginBottom: '10px', display: 'block' }}>
                 JSON Array of Cards
               </label>
-              <div style={{
-                backgroundColor: '#0f1117',
-                border: '1px solid #2a2a2a',
-                borderRadius: '8px',
-                padding: '12px',
-                marginBottom: '12px',
-                fontSize: '12px',
-                color: '#71717a',
-                fontFamily: 'monospace',
-                lineHeight: 1.6,
-              }}>
+              <div
+                style={{
+                  backgroundColor: '#0f1117',
+                  border: '1px solid #2a2a2a',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginBottom: '12px',
+                  fontSize: '12px',
+                  color: '#71717a',
+                  fontFamily: 'monospace',
+                  lineHeight: 1.6,
+                  whiteSpace: 'pre',
+                }}
+              >
                 {`[\n  { "front": "Question 1", "back": "Answer 1", "topic": "My Topic" },\n  { "front": "Question 2", "back": "Answer 2", "topic": "My Topic" }\n]`}
               </div>
               <textarea
                 value={bulkJson}
                 onChange={(e) => setBulkJson(e.target.value)}
-                placeholder='Paste your JSON array here…'
+                placeholder="Paste your JSON array here…"
                 rows={10}
-                style={{
-                  ...inputStyle,
-                  fontFamily: 'monospace',
-                  fontSize: '13px',
-                  lineHeight: 1.5,
-                }}
-                onFocus={(e) => e.target.style.borderColor = '#6366f1'}
-                onBlur={(e) => e.target.style.borderColor = '#2a2a2a'}
+                style={{ ...inputStyle, fontFamily: 'monospace', fontSize: '13px', lineHeight: 1.5 }}
+                onFocus={(e) => (e.target.style.borderColor = '#6366f1')}
+                onBlur={(e) => (e.target.style.borderColor = '#2a2a2a')}
               />
             </div>
 
@@ -279,7 +350,11 @@ export default function AddCard() {
               <button
                 onClick={handleBulkImport}
                 disabled={bulkSubmitting || !bulkJson.trim()}
-                style={{ ...btnPrimary, flex: 1, opacity: (bulkSubmitting || !bulkJson.trim()) ? 0.6 : 1 }}
+                style={{
+                  ...btnPrimary,
+                  flex: 1,
+                  opacity: bulkSubmitting || !bulkJson.trim() ? 0.6 : 1,
+                }}
               >
                 {bulkSubmitting ? 'Importing…' : 'Import Cards'}
               </button>

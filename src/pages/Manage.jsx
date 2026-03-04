@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
+import { deleteImage } from '../lib/storage'
 import Spinner from '../components/Spinner'
+import ImageUpload from '../components/ImageUpload'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
 
@@ -38,12 +40,17 @@ export default function Manage() {
   }
 
   const topics = ['All', ...Array.from(new Set(cards.map((c) => c.topic))).sort()]
-
   const filtered = filterTopic === 'All' ? cards : cards.filter((c) => c.topic === filterTopic)
 
   function startEdit(card) {
     setEditingId(card.id)
-    setEditForm({ front: card.front, back: card.back, topic: card.topic })
+    setEditForm({
+      front: card.front,
+      back: card.back,
+      topic: card.topic,
+      front_image_url: card.front_image_url || null,
+      back_image_url: card.back_image_url || null,
+    })
   }
 
   function cancelEdit() {
@@ -58,12 +65,19 @@ export default function Manage() {
     }
     setSaving(true)
     try {
+      const updates = {
+        front: editForm.front.trim(),
+        back: editForm.back.trim(),
+        topic: editForm.topic.trim(),
+        front_image_url: editForm.front_image_url || null,
+        back_image_url: editForm.back_image_url || null,
+      }
       const { error: updateError } = await supabase
         .from('flashcards')
-        .update({ front: editForm.front.trim(), back: editForm.back.trim(), topic: editForm.topic.trim() })
+        .update(updates)
         .eq('id', id)
       if (updateError) throw updateError
-      setCards((prev) => prev.map((c) => c.id === id ? { ...c, ...editForm } : c))
+      setCards((prev) => prev.map((c) => (c.id === id ? { ...c, ...updates } : c)))
       setEditingId(null)
       addToast('Card updated successfully')
     } catch (err) {
@@ -74,15 +88,26 @@ export default function Manage() {
   }
 
   async function deleteCard(id) {
+    const card = cards.find((c) => c.id === id)
     try {
       const { error: deleteError } = await supabase.from('flashcards').delete().eq('id', id)
       if (deleteError) throw deleteError
+      // Delete associated images from storage (best-effort)
+      if (card?.front_image_url) deleteImage(card.front_image_url).catch(() => {})
+      if (card?.back_image_url) deleteImage(card.back_image_url).catch(() => {})
       setCards((prev) => prev.filter((c) => c.id !== id))
       setDeleteConfirm(null)
       addToast('Card deleted')
     } catch (err) {
       addToast(err.message, 'error')
     }
+  }
+
+  // Handle image change in edit form — delete old image if replaced/removed
+  function handleEditImage(side, newUrl) {
+    const oldUrl = side === 'front' ? editForm.front_image_url : editForm.back_image_url
+    if (oldUrl && oldUrl !== newUrl) deleteImage(oldUrl).catch(() => {})
+    setEditForm((f) => ({ ...f, [`${side}_image_url`]: newUrl }))
   }
 
   if (loading) {
@@ -97,7 +122,9 @@ export default function Manage() {
     return (
       <div style={{ textAlign: 'center', padding: '64px 24px' }}>
         <p style={{ color: '#ef4444', marginBottom: '16px' }}>{error}</p>
-        <button onClick={loadCards} style={btnPrimary}>Retry</button>
+        <button onClick={loadCards} style={btnPrimary}>
+          Retry
+        </button>
       </div>
     )
   }
@@ -106,9 +133,26 @@ export default function Manage() {
     <>
       <div>
         {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'flex-start',
+            marginBottom: '28px',
+            flexWrap: 'wrap',
+            gap: '16px',
+          }}
+        >
           <div>
-            <h1 style={{ margin: '0 0 6px', fontSize: '28px', fontWeight: '700', color: '#f4f4f5', letterSpacing: '-0.03em' }}>
+            <h1
+              style={{
+                margin: '0 0 6px',
+                fontSize: '28px',
+                fontWeight: '700',
+                color: '#f4f4f5',
+                letterSpacing: '-0.03em',
+              }}
+            >
               Manage Cards
             </h1>
             <p style={{ margin: 0, color: '#71717a', fontSize: '14px' }}>
@@ -125,7 +169,10 @@ export default function Manage() {
                 style={{
                   padding: '6px 14px',
                   borderRadius: '8px',
-                  border: filterTopic === t ? '1px solid rgba(99,102,241,0.5)' : '1px solid #2a2a2a',
+                  border:
+                    filterTopic === t
+                      ? '1px solid rgba(99,102,241,0.5)'
+                      : '1px solid #2a2a2a',
                   backgroundColor: filterTopic === t ? 'rgba(99,102,241,0.15)' : '#1a1a1a',
                   color: filterTopic === t ? '#818cf8' : '#71717a',
                   cursor: 'pointer',
@@ -141,13 +188,15 @@ export default function Manage() {
         </div>
 
         {filtered.length === 0 ? (
-          <div style={{
-            backgroundColor: '#1a1a1a',
-            border: '1px solid #2a2a2a',
-            borderRadius: '12px',
-            padding: '64px 24px',
-            textAlign: 'center',
-          }}>
+          <div
+            style={{
+              backgroundColor: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: '12px',
+              padding: '64px 24px',
+              textAlign: 'center',
+            }}
+          >
             <p style={{ color: '#71717a', fontSize: '16px' }}>No cards found.</p>
           </div>
         ) : (
@@ -163,12 +212,14 @@ export default function Manage() {
                 >
                   {editingId === card.id ? (
                     <EditRow
+                      card={card}
                       form={editForm}
                       setForm={setEditForm}
                       onSave={() => saveEdit(card.id)}
                       onCancel={cancelEdit}
                       saving={saving}
                       allTopics={topics.filter((t) => t !== 'All')}
+                      onImageChange={handleEditImage}
                     />
                   ) : (
                     <CardRow
@@ -219,8 +270,14 @@ export default function Manage() {
               }}
             >
               <div style={{ fontSize: '40px', marginBottom: '12px' }}>🗑</div>
-              <h3 style={{ margin: '0 0 8px', fontSize: '20px', fontWeight: '600', color: '#f4f4f5' }}>Delete card?</h3>
-              <p style={{ margin: '0 0 24px', color: '#71717a', fontSize: '14px' }}>This action cannot be undone.</p>
+              <h3
+                style={{ margin: '0 0 8px', fontSize: '20px', fontWeight: '600', color: '#f4f4f5' }}
+              >
+                Delete card?
+              </h3>
+              <p style={{ margin: '0 0 24px', color: '#71717a', fontSize: '14px' }}>
+                This action cannot be undone. Any attached images will also be removed.
+              </p>
               <div style={{ display: 'flex', gap: '10px' }}>
                 <button
                   onClick={() => setDeleteConfirm(null)}
@@ -257,9 +314,10 @@ export default function Manage() {
 
 function CardRow({ card, onEdit, onDelete }) {
   const [hovered, setHovered] = useState(false)
-  const accuracy = card.times_seen > 0
-    ? `${Math.round((card.times_correct / card.times_seen) * 100)}%`
-    : '—'
+  const accuracy =
+    card.times_seen > 0
+      ? `${Math.round((card.times_correct / card.times_seen) * 100)}%`
+      : '—'
 
   return (
     <div
@@ -269,7 +327,7 @@ function CardRow({ card, onEdit, onDelete }) {
         backgroundColor: '#1a1a1a',
         border: hovered ? '1px solid #3a3a3a' : '1px solid #2a2a2a',
         borderRadius: '10px',
-        padding: '16px 20px',
+        padding: '14px 20px',
         display: 'grid',
         gridTemplateColumns: '1fr 1fr auto auto auto',
         gap: '12px',
@@ -277,29 +335,90 @@ function CardRow({ card, onEdit, onDelete }) {
         transition: 'all 0.15s',
       }}
     >
+      {/* Front */}
       <div>
-        <div style={{ fontSize: '12px', color: '#52525b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Front</div>
+        <div
+          style={{
+            fontSize: '12px',
+            color: '#52525b',
+            marginBottom: '4px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          Front
+        </div>
         <div style={{ fontSize: '14px', color: '#f4f4f5', lineHeight: 1.4 }}>{card.front}</div>
+        {card.front_image_url && (
+          <img
+            src={card.front_image_url}
+            alt=""
+            style={{
+              marginTop: '6px',
+              height: '40px',
+              width: 'auto',
+              maxWidth: '80px',
+              borderRadius: '4px',
+              objectFit: 'cover',
+              border: '1px solid #2a2a2a',
+            }}
+          />
+        )}
       </div>
+
+      {/* Back */}
       <div>
-        <div style={{ fontSize: '12px', color: '#52525b', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Back</div>
+        <div
+          style={{
+            fontSize: '12px',
+            color: '#52525b',
+            marginBottom: '4px',
+            textTransform: 'uppercase',
+            letterSpacing: '0.05em',
+          }}
+        >
+          Back
+        </div>
         <div style={{ fontSize: '14px', color: '#a1a1aa', lineHeight: 1.4 }}>{card.back}</div>
+        {card.back_image_url && (
+          <img
+            src={card.back_image_url}
+            alt=""
+            style={{
+              marginTop: '6px',
+              height: '40px',
+              width: 'auto',
+              maxWidth: '80px',
+              borderRadius: '4px',
+              objectFit: 'cover',
+              border: '1px solid #2a2a2a',
+            }}
+          />
+        )}
       </div>
-      <div style={{
-        backgroundColor: 'rgba(99,102,241,0.1)',
-        color: '#818cf8',
-        borderRadius: '6px',
-        padding: '4px 10px',
-        fontSize: '12px',
-        fontWeight: '500',
-        whiteSpace: 'nowrap',
-      }}>
+
+      {/* Topic */}
+      <div
+        style={{
+          backgroundColor: 'rgba(99,102,241,0.1)',
+          color: '#818cf8',
+          borderRadius: '6px',
+          padding: '4px 10px',
+          fontSize: '12px',
+          fontWeight: '500',
+          whiteSpace: 'nowrap',
+        }}
+      >
         {card.topic}
       </div>
+
+      {/* Accuracy */}
       <div style={{ textAlign: 'center', minWidth: '48px' }}>
         <div style={{ fontSize: '13px', fontWeight: '600', color: '#f4f4f5' }}>{accuracy}</div>
         <div style={{ fontSize: '11px', color: '#52525b' }}>accuracy</div>
       </div>
+
+      {/* Actions */}
       <div style={{ display: 'flex', gap: '6px' }}>
         <button
           onClick={onEdit}
@@ -313,8 +432,14 @@ function CardRow({ card, onEdit, onDelete }) {
             padding: '6px 12px',
             transition: 'all 0.15s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.color = '#6366f1' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#71717a' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#6366f1'
+            e.currentTarget.style.color = '#6366f1'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#2a2a2a'
+            e.currentTarget.style.color = '#71717a'
+          }}
         >
           Edit
         </button>
@@ -330,8 +455,14 @@ function CardRow({ card, onEdit, onDelete }) {
             padding: '6px 12px',
             transition: 'all 0.15s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = '#ef4444'; e.currentTarget.style.color = '#ef4444' }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = '#2a2a2a'; e.currentTarget.style.color = '#71717a' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.borderColor = '#ef4444'
+            e.currentTarget.style.color = '#ef4444'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.borderColor = '#2a2a2a'
+            e.currentTarget.style.color = '#71717a'
+          }}
         >
           ✕
         </button>
@@ -340,17 +471,20 @@ function CardRow({ card, onEdit, onDelete }) {
   )
 }
 
-function EditRow({ form, setForm, onSave, onCancel, saving, allTopics }) {
+function EditRow({ card, form, setForm, onSave, onCancel, saving, allTopics, onImageChange }) {
   return (
-    <div style={{
-      backgroundColor: '#1e1e2e',
-      border: '1px solid rgba(99,102,241,0.3)',
-      borderRadius: '10px',
-      padding: '16px 20px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '12px',
-    }}>
+    <div
+      style={{
+        backgroundColor: '#1e1e2e',
+        border: '1px solid rgba(99,102,241,0.3)',
+        borderRadius: '10px',
+        padding: '20px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '16px',
+      }}
+    >
+      {/* Text fields */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '12px' }}>
         <div>
           <label style={labelStyle}>Front</label>
@@ -379,12 +513,35 @@ function EditRow({ form, setForm, onSave, onCancel, saving, allTopics }) {
             style={{ ...inputStyle, width: '160px' }}
           />
           <datalist id="topic-list-edit">
-            {allTopics.map((t) => <option key={t} value={t} />)}
+            {allTopics.map((t) => (
+              <option key={t} value={t} />
+            ))}
           </datalist>
         </div>
       </div>
+
+      {/* Image upload fields */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <ImageUpload
+          cardId={card.id}
+          side="front"
+          value={form.front_image_url}
+          onChange={(url) => onImageChange('front', url)}
+          label="Front image"
+        />
+        <ImageUpload
+          cardId={card.id}
+          side="back"
+          value={form.back_image_url}
+          onChange={(url) => onImageChange('back', url)}
+          label="Back image"
+        />
+      </div>
+
       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-        <button onClick={onCancel} style={btnSecondary}>Cancel</button>
+        <button onClick={onCancel} style={btnSecondary}>
+          Cancel
+        </button>
         <button onClick={onSave} disabled={saving} style={{ ...btnPrimary, opacity: saving ? 0.6 : 1 }}>
           {saving ? 'Saving…' : 'Save'}
         </button>
